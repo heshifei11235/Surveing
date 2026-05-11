@@ -1,0 +1,36 @@
+# =====================================================
+# OpenCode Conversation Manager - Configuration
+# =====================================================
+
+# Database Configuration
+database:
+  # SQLite database file path (relative to project root)
+  path: "./opencode_conversation.db"
+
+# Backend Server Configuration
+backend:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true  # Auto-reload on code changes (development only)
+
+# OpenCode Service Configuration
+opencode:
+  # OpenCode server URL
+  url: "http://localhost:36000"
+  # API Key (if required)
+  api_key: ""
+  # Default mode for new sessions: "semi_auto" or "full_auto"
+  default_mode: "semi_auto"
+
+# Frontend Server Configuration
+frontend:
+  # Vite dev server URL
+  url: "http://localhost:3000"
+
+# CORS Configuration
+cors:
+  # Allowed origins (comma-separated for multiple)
+  allowed_origins: "*"
+  allow_credentials: true
+  allowed_methods: "*"
+  allowed_headers: "*"
