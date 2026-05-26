@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk';
+import { createOpencodeClient } from '@opencode-ai/sdk/v2/client';
 
 export interface OpenCodeMessage {
   id: string;
@@ -27,7 +27,7 @@ interface UseOpenCodeOptions {
 }
 
 export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
-  const clientRef = useRef<OpencodeClient | null>(null);
+  const clientRef = useRef<ReturnType<typeof createOpencodeClient> | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<OpenCodeSession[]>([]);
@@ -49,26 +49,26 @@ export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
     }
   }, [baseUrl, directory]);
 
-  // Load sessions
+  // Load sessions (using v2)
   const loadSessions = useCallback(async () => {
     if (!clientRef.current) return;
     try {
-      const result = await clientRef.current.session.list({
-        query: { directory },
+      const result: any = await clientRef.current.v2.session.list({
+        directory,
       });
-      setSessions(result.data || []);
+      setSessions(result.data?.sessions || []);
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
   }, [directory]);
 
-  // Create new session
+  // Create new session (using v2)
   const createSession = useCallback(async (title?: string) => {
     if (!clientRef.current) return null;
     try {
-      const result = await clientRef.current.session.create({
-        body: { title },
-        query: { directory },
+      const result: any = await clientRef.current.session.create({
+        directory,
+        title,
       });
       const session = result.data;
       if (session) {
@@ -83,16 +83,16 @@ export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
     }
   }, [directory]);
 
-  // Select session and load messages
+  // Select session and load messages (using v2)
   const selectSession = useCallback(async (sessionId: string) => {
     if (!clientRef.current) return;
     setCurrentSession(sessionId);
     try {
-      const result = await clientRef.current.session.messages({
-        path: { id: sessionId },
-        query: { directory },
+      const result: any = await clientRef.current.v2.session.messages({
+        sessionID: sessionId,
+        directory,
       });
-      const msgs: OpenCodeMessage[] = (result.data || []).map((msg: any) => ({
+      const msgs: OpenCodeMessage[] = (result.data?.messages || []).map((msg: any) => ({
         id: msg.id,
         sessionID: msg.sessionID,
         role: msg.role,
@@ -111,8 +111,8 @@ export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
     if (!clientRef.current) return;
     try {
       await clientRef.current.session.delete({
-        path: { id: sessionId },
-        query: { directory },
+        sessionID: sessionId,
+        directory,
       });
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (currentSession === sessionId) {
@@ -124,7 +124,7 @@ export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
     }
   }, [directory, currentSession]);
 
-  // Send message
+  // Send message (using v2)
   const sendMessage = useCallback(async (content: string) => {
     if (!clientRef.current || !currentSession || sending) return;
 
@@ -152,13 +152,13 @@ export function useOpenCode({ baseUrl, directory }: UseOpenCodeOptions) {
     }]);
 
     try {
-      // Send message
-      const result = await clientRef.current.session.prompt({
-        path: { id: currentSession },
-        body: {
-          parts: [{ type: 'text', text: content }],
+      // Send message using v2 API
+      const result: any = await clientRef.current.v2.session.prompt({
+        sessionID: currentSession,
+        directory,
+        prompt: {
+          text: content,
         },
-        query: { directory },
       });
 
       // Process the response

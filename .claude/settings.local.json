@@ -21,7 +21,15 @@
       "Bash(pnpm tsc:*)",
       "Bash(pnpm dev:*)",
       "Bash(python -m py_compile app/config.py app/database.py app/main.py app/services/opencode_service.py run.py)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(python:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -r \"createOpencodeClient\" /Users/heshifei/Desktop/project/frontend/node_modules/@opencode-ai/sdk/dist/*.js)",
+      "Bash(grep -r \"cross-spawn\\\\|which\" /Users/heshifei/Desktop/project/frontend/node_modules/@opencode-ai/sdk/dist/v2/*.js)",
+      "Bash(grep \"export.*OpencodeClient\\\\|export.*Session\" /Users/heshifei/Desktop/project/frontend/node_modules/@opencode-ai/sdk/dist/v2/*.d.ts /Users/heshifei/Desktop/project/frontend/node_modules/@opencode-ai/sdk/dist/v2/gen/*.d.ts)"
     ]
   }
 }
