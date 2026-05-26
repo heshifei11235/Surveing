@@ -7,8 +7,8 @@
 - **任务管理** - 创建、编辑、删除调查任务
 - **多会话支持** - 每个任务可创建多个独立对话会话
 - **多对话并行** - 3D 立体卡片布局，支持同时开启多个对话
-- **AI 对话** - 集成 OpenCode SDK，提供智能对话功能
-- **实时流式响应** - Server-Sent Events (SSE) 实现打字机效果
+- **AI 对话** - 前端直接集成 OpenCode npm SDK，提供智能对话功能
+- **实时响应** - 支持步骤进度和思考过程显示
 - **结果展示** - 右侧面板实时展示代码和执行结果
 - **可配置部署** - 支持 YAML 配置文件
 
@@ -18,6 +18,7 @@
 - Node.js 18+
 - npm 或 pnpm
 - SQLite3
+- OpenCode 服务（运行于 `localhost:36000` 或自定义端口）
 
 ## 技术栈
 
@@ -25,7 +26,7 @@
 - **FastAPI** - 高性能 Web 框架
 - **SQLAlchemy** - ORM
 - **SQLite** - 轻量级数据库
-- **OpenCode SDK** - AI 对接
+- 数据存储服务（会话、任务、消息的持久化）
 
 ### 前端
 - **React 18** - UI 框架
@@ -33,6 +34,7 @@
 - **TailwindCSS** - 样式
 - **Vite** - 构建工具
 - **Lucide Icons** - 图标
+- **@opencode-ai/sdk** - 前端 OpenCode 通信
 
 ## 项目结构
 
@@ -45,10 +47,10 @@ project/
 │   │   │   ├── sessions.py  # 会话相关接口
 │   │   │   └── messages.py  # 消息相关接口
 │   │   ├── services/        # 业务逻辑
-│   │   │   └── opencode_service.py
+│   │   │   └── opencode_service.py  # (简化版，仅存储)
 │   │   ├── config.py        # 配置加载
-│   │   ├── database.py      # 数据库配置
-│   │   ├── models.py        # 数据模型
+│   │   ├── database.py      # 数据库配置和模型
+│   │   ├── models.py        # Pydantic 模型
 │   │   └── main.py          # 应用入口
 │   ├── config.yaml          # 配置文件
 │   ├── database.sql         # 数据库建表SQL
@@ -57,19 +59,55 @@ project/
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx          # 主应用组件
-│   │   ├── components/      # UI组件
-│   │   ├── types/           # TypeScript类型
-│   │   ├── hooks/           # 自定义Hooks
+│   │   ├── hooks/
+│   │   │   └── useOpenCode.ts   # OpenCode SDK Hook
 │   │   └── ...
 │   ├── package.json
 │   └── vite.config.ts
-├── config.yaml              # 主配置文件
 └── README.md
 ```
 
+## 架构说明
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         用户浏览器                               │
+├─────────────────────────────────────────────────────────────────┤
+│  前端 (React + @opencode-ai/sdk)                               │
+│    │                                                           │
+│    ├── createOpencodeClient() ──────────────────────────────┐  │
+│    ├── session.create() / list() / delete() ───────────────┐ │  │
+│    ├── session.prompt() ──────────────────────────────────┐ │  │
+│    │                                                        │ │  │
+│    └──────────┬────────────────────────────────────────────┘ │  │
+│               │                                              │  │
+│               ▼                                              │  │
+│         OpenCode 服务器                                       │  │
+│         (localhost:36000)                                     │  │
+└───────────────┬───────────────────────────────────────────────┘  │
+                │                                                │
+                ▼                                                │
+┌─────────────────────────────────────────────────────────────────┐
+│  后端 (FastAPI) - 仅用于数据存储                                 │
+│    │                                                           │
+│    ├── /api/tasks/*    - 任务 CRUD                              │
+│    ├── /api/sessions/* - 会话记录                               │
+│    └── /api/messages/* - 消息存储                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**重要变化**：前端直接使用 `@opencode-ai/sdk` 与 OpenCode 服务器通信，后端仅用于数据持久化存储。
+
 ## 快速部署
 
-### 1. 初始化数据库
+### 1. 准备工作
+
+确保已安装：
+- Python 3.10+
+- Node.js 18+
+- OpenCode CLI（用于启动 OpenCode 服务）
+
+### 2. 初始化数据库
 
 ```bash
 cd backend
@@ -81,7 +119,7 @@ sqlite3 opencode_conversation.db < database.sql
 python run.py
 ```
 
-### 2. 配置
+### 3. 配置
 
 编辑 `backend/config.yaml` 修改配置：
 
@@ -94,20 +132,24 @@ database:
 backend:
   host: "0.0.0.0"
   port: 8000
-  reload: false  # 生产环境设为 false
+  reload: false
 
-# OpenCode 服务配置
-opencode:
-  url: "http://localhost:36000"
-  api_key: ""    # 如需要则填写
-  default_mode: "semi_auto"
-
-# 前端服务配置
-frontend:
-  url: "http://localhost:3000"
+# CORS 配置
+cors:
+  allowed_origins: "*"
+  allow_credentials: true
+  allowed_methods: "*"
+  allowed_headers: "*"
 ```
 
-### 3. 启动后端服务
+### 4. 启动 OpenCode 服务
+
+```bash
+# 在终端启动 OpenCode 服务
+opencode serve --port 36000
+```
+
+### 5. 启动后端服务
 
 ```bash
 cd backend
@@ -126,7 +168,7 @@ python run.py
 
 后端服务运行在 `http://localhost:8000`
 
-### 4. 启动前端
+### 6. 启动前端
 
 ```bash
 cd frontend
@@ -140,11 +182,15 @@ npm run dev
 
 前端服务运行在 `http://localhost:3000`
 
-### 5. 启动 OpenCode 服务（如需要）
+访问 `http://localhost:3000` 开始使用。
 
-```bash
-# 在另一个终端启动 OpenCode 服务
-opencode serve --port 36000
+### 7. 配置 OpenCode 连接（可选）
+
+如需修改 OpenCode 服务器地址或工作目录，编辑 `frontend/src/App.tsx`：
+
+```typescript
+const OPENCODE_BASE_URL = 'http://localhost:36000';
+const OPENCODE_DIRECTORY = '/your/project/path';
 ```
 
 ## API 接口
@@ -170,12 +216,10 @@ opencode serve --port 36000
 
 ### 消息接口
 
-| 方法   | 路径                              | 描述                 |
-|--------|-----------------------------------|----------------------|
-| POST   | `/api/sessions/{id}/messages`     | 发送消息（非流式）   |
-| POST   | `/api/sessions/{id}/messages/stream` | 发送消息（流式） |
-| GET    | `/api/sessions/{id}/messages`    | 获取会话消息列表     |
-| GET    | `/api/sessions/{id}/conversation` | 获取完整会话       |
+| 方法   | 路径                          | 描述                 |
+|--------|-------------------------------|----------------------|
+| POST   | `/api/sessions/{id}/messages` | 保存消息            |
+| GET    | `/api/sessions/{id}/messages`  | 获取会话消息列表    |
 
 ### 系统接口
 
@@ -248,14 +292,14 @@ cp opencode_conversation_backup.db opencode_conversation.db
 ### 启动开发模式
 
 ```bash
-# 终端1: 后端
+# 终端1: OpenCode 服务
+opencode serve --port 36000
+
+# 终端2: 后端
 cd backend && python run.py
 
-# 终端2: 前端
+# 终端3: 前端
 cd frontend && npm run dev
-
-# 终端3: OpenCode（如需要）
-opencode serve --port 36000
 ```
 
 ### 代码检查
@@ -267,7 +311,7 @@ python -m py_compile app/*.py
 
 # 前端
 cd frontend
-pnpm tsc --noEmit
+npx tsc --noEmit
 ```
 
 ## 生产部署
@@ -319,8 +363,8 @@ server {
 ### OpenCode 连接失败
 
 1. 检查 OpenCode 服务：`curl http://localhost:36000`
-2. 检查 `config.yaml` 中 `opencode.url` 配置
-3. 查看后端日志中的错误信息
+2. 确认 OpenCode 服务正在运行
+3. 检查 `frontend/src/App.tsx` 中的 `OPENCODE_BASE_URL` 配置
 
 ## 许可证
 
