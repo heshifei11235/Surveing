@@ -231,22 +231,29 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 // ============ Typing Indicator ============
-function TypingIndicator() {
+function TypingIndicator({ step }: { step?: string }) {
   return (
     <div className="flex gap-2.5">
       <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
         <Bot className="w-3.5 h-3.5 text-white" />
       </div>
       <div className="px-3 py-2 rounded-2xl bg-white/5 border border-white/10">
-        <div className="flex items-center gap-1">
-          {[0, 150, 300].map(i => (
-            <div
-              key={i}
-              className="w-1.5 h-1.5 rounded-full bg-blue-400"
-              style={{ animation: `bounce 1s infinite`, animationDelay: `${i}ms` }}
-            />
-          ))}
-        </div>
+        {step ? (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            <span className="text-xs text-blue-300">{step}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            {[0, 150, 300].map(i => (
+              <div
+                key={i}
+                className="w-1.5 h-1.5 rounded-full bg-blue-400"
+                style={{ animation: `bounce 1s infinite`, animationDelay: `${i}ms` }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -373,6 +380,7 @@ export default function App() {
   const [inputMap, setInputMap] = useState<Record<number, string>>({});
   const [sendingMap, setSendingMap] = useState<Record<number, boolean>>({});
   const [activeConversations, setActiveConversations] = useState<number[]>([]);
+  const [stepMap, setStepMap] = useState<Record<number, string>>({});
 
   // Survey form state
   const [surveyTitle, setSurveyTitle] = useState('');
@@ -511,12 +519,16 @@ export default function App() {
                   )
                 }));
               }
+              if (data.step) {
+                setStepMap(prev => ({ ...prev, [sessionId]: data.step }));
+              }
               if (data.done) {
-                // Reload messages to get the persisted version
+                setStepMap(prev => ({ ...prev, [sessionId]: '' }));
                 await loadMessages(sessionId);
               }
               if (data.error) {
                 console.error('Stream error:', data.error);
+                setStepMap(prev => ({ ...prev, [sessionId]: '' }));
               }
             } catch (e) {
               // Ignore parse errors for incomplete JSON
@@ -733,8 +745,11 @@ export default function App() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <h3 className="text-xs font-medium text-white truncate">{task?.title || `任务 #${session.task_id}`}</h3>
-                                <p className="text-[9px] text-gray-500">
+                                <p className="text-[9px] text-gray-500 flex items-center gap-1">
                                   #{session.id} · {session.mode === 'semi_auto' ? '半自动' : '全自动'}
+                                  {stepMap[sessionId] && (
+                                    <span className="text-blue-400 ml-1">• {stepMap[sessionId]}</span>
+                                  )}
                                 </p>
                               </div>
                               {isCenter && (
@@ -760,7 +775,7 @@ export default function App() {
                               ) : (
                                 messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
                               )}
-                              {sending && <TypingIndicator />}
+                              {sending && <TypingIndicator step={stepMap[sessionId]} />}
                             </div>
 
                             {/* Input */}
