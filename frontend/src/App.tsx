@@ -1,63 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Send, MessageSquare, User, Code, FileText, Terminal, Copy, GripVertical, Play, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import type { Task, Session, Message } from './types';
+import { useOpenCode, type OpenCodeSession, type OpenCodeMessage, type StepInfo } from './hooks/useOpenCode';
 
-// ============ API Functions ============
-const API_BASE = '/api';
-
-async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, options);
-  if (!res.ok) {
-    throw new Error(`API Error: ${res.status}`);
-  }
-  return res.json();
-}
-
-async function createTask(title: string, description?: string): Promise<Task> {
-  return apiFetch('/tasks/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description }),
-  });
-}
-
-async function createSession(taskId: number, mode: string): Promise<Session> {
-  return apiFetch(`/tasks/${taskId}/sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode }),
-  });
-}
-
-async function fetchSessions(taskId: number): Promise<Session[]> {
-  return apiFetch(`/tasks/${taskId}/sessions`);
-}
-
-async function fetchMessages(sessionId: number): Promise<Message[]> {
-  return apiFetch(`/sessions/${sessionId}/messages`);
-}
+// OpenCode server URL - change this to your OpenCode server address
+const OPENCODE_BASE_URL = 'http://localhost:36000';
+const OPENCODE_DIRECTORY = '/Users/heshifei/Desktop/project';
 
 // ============ Task Input Component ============
 function TaskInput({
   value,
   onChange,
   onStart,
-  mode,
-  onModeChange,
   disabled
 }: {
   value: string;
   onChange: (v: string) => void;
   onStart: () => void;
-  mode: 'semi_auto' | 'full_auto';
-  onModeChange: (m: 'semi_auto' | 'full_auto') => void;
   disabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="space-y-4">
-      {/* Task Name */}
       <div>
         <label className="block text-xs text-gray-400 mb-2">任务名称</label>
         <input
@@ -71,30 +35,6 @@ function TaskInput({
         />
       </div>
 
-      {/* Survey Mode */}
-      <div>
-        <label className="block text-xs text-gray-400 mb-2">调查模式</label>
-        <div className="space-y-2">
-          <ModeOption
-            mode="semi_auto"
-            label="半自动模式"
-            desc="AI 逐步引导，每次等待用户确认"
-            selected={mode === 'semi_auto'}
-            onSelect={() => onModeChange('semi_auto')}
-            disabled={disabled}
-          />
-          <ModeOption
-            mode="full_auto"
-            label="全自动模式"
-            desc="AI 自动深度分析，一键生成报告"
-            selected={mode === 'full_auto'}
-            onSelect={() => onModeChange('full_auto')}
-            disabled={disabled}
-          />
-        </div>
-      </div>
-
-      {/* Start Button */}
       <button
         onClick={onStart}
         disabled={!value.trim() || disabled}
@@ -103,7 +43,7 @@ function TaskInput({
         {disabled ? (
           <>
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            <span>创建中...</span>
+            <span>连接中...</span>
           </>
         ) : (
           <>
@@ -116,57 +56,15 @@ function TaskInput({
   );
 }
 
-function ModeOption({
-  mode,
-  label,
-  desc,
-  selected,
-  onSelect,
-  disabled
-}: {
-  mode: 'semi_auto' | 'full_auto';
-  label: string;
-  desc: string;
-  selected: boolean;
-  onSelect: () => void;
-  disabled: boolean;
-}) {
-  const colors = mode === 'semi_auto'
-    ? { border: 'blue', bg: 'rgba(59,130,246,0.12)' }
-    : { border: 'emerald', bg: 'rgba(16,185,129,0.12)' };
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
-      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all border ${
-        selected ? `border-${colors.border}-500/50` : 'border-transparent'
-      } ${disabled ? 'opacity-50' : 'cursor-pointer'}`}
-      style={{ background: selected ? colors.bg : 'rgba(255,255,255,0.03)' }}
-    >
-      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center border-${colors.border}-500`}>
-        {selected && <div className={`w-2 h-2 rounded-full bg-${colors.border}-500`} />}
-      </div>
-      <div className="text-left">
-        <div className="text-xs font-medium text-white">{label}</div>
-        <div className="text-[10px] text-gray-500 mt-0.5">{desc}</div>
-      </div>
-    </button>
-  );
-}
-
 // ============ Session List Component ============
 function SessionList({
   sessions,
-  taskMap,
   selectedId,
   onSelect
 }: {
-  sessions: Session[];
-  taskMap: Record<number, Task>;
-  selectedId: number | null;
-  onSelect: (s: Session) => void;
+  sessions: OpenCodeSession[];
+  selectedId: string | null;
+  onSelect: (s: OpenCodeSession) => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -174,36 +72,30 @@ function SessionList({
       {sessions.length === 0 ? (
         <div className="text-center py-4 text-gray-600 text-xs">暂无会话</div>
       ) : (
-        sessions.map(s => {
-          const task = taskMap[s.task_id];
-          return (
-            <button
-              key={s.id}
-              onClick={() => onSelect(s)}
-              className={`w-full flex flex-col items-start gap-1 px-3 py-2 rounded-lg text-left text-[10px] transition-all ${
-                selectedId === s.id
-                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                  : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2 w-full">
-                <div className={`w-1.5 h-1.5 rounded-full ${selectedId === s.id ? 'bg-blue-400' : 'bg-gray-600'}`} />
-                <span className="truncate font-medium">{task?.title || `任务 #${s.task_id}`}</span>
-                <span className="ml-auto text-gray-600">{new Date(s.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}</span>
-              </div>
-              <div className="text-gray-600 ml-3.5">
-                {s.mode === 'semi_auto' ? '半自动' : '全自动'} · 会话 #{s.id}
-              </div>
-            </button>
-          );
-        })
+        sessions.map(s => (
+          <button
+            key={s.id}
+            onClick={() => onSelect(s)}
+            className={`w-full flex flex-col items-start gap-1 px-3 py-2 rounded-lg text-left text-[10px] transition-all ${
+              selectedId === s.id
+                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
+            }`}
+          >
+            <div className="flex items-center gap-2 w-full">
+              <div className={`w-1.5 h-1.5 rounded-full ${selectedId === s.id ? 'bg-blue-400' : 'bg-gray-600'}`} />
+              <span className="truncate font-medium">{s.title || `会话 #${s.id}`}</span>
+            </div>
+            <div className="text-gray-600 ml-3.5">OpenCode 会话</div>
+          </button>
+        ))
       )}
     </div>
   );
 }
 
 // ============ Message Bubble ============
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({ msg }: { msg: OpenCodeMessage }) {
   const isUser = msg.role === 'user';
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -231,7 +123,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 // ============ Typing Indicator ============
-function TypingIndicator({ step }: { step?: string }) {
+function TypingIndicator({ step }: { step?: StepInfo }) {
   return (
     <div className="flex gap-2.5">
       <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
@@ -241,7 +133,7 @@ function TypingIndicator({ step }: { step?: string }) {
         {step ? (
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            <span className="text-xs text-blue-300">{step}</span>
+            <span className="text-xs text-blue-300">{step.step}</span>
           </div>
         ) : (
           <div className="flex items-center gap-1">
@@ -373,181 +265,61 @@ function PanelHeader({ children }: { children: React.ReactNode }) {
 
 // ============ Main App ============
 export default function App() {
-  const [allSessions, setAllSessions] = useState<Session[]>([]);
-  const [taskMap, setTaskMap] = useState<Record<number, Task>>({});
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
-  const [messagesMap, setMessagesMap] = useState<Record<number, Message[]>>({});
-  const [inputMap, setInputMap] = useState<Record<number, string>>({});
-  const [sendingMap, setSendingMap] = useState<Record<number, boolean>>({});
-  const [activeConversations, setActiveConversations] = useState<number[]>([]);
-  const [stepMap, setStepMap] = useState<Record<number, string>>({});
+  const [taskTitle, setTaskTitle] = useState('');
+  const [activeConversations, setActiveConversations] = useState<string[]>([]);
 
-  // Survey form state
-  const [surveyTitle, setSurveyTitle] = useState('');
-  const [surveyMode, setSurveyMode] = useState<'semi_auto' | 'full_auto'>('semi_auto');
-  const [loadingSurvey, setLoadingSurvey] = useState(false);
+  // Use OpenCode hook directly
+  const {
+    initialized,
+    error,
+    sessions,
+    currentSession,
+    messages,
+    sending,
+    step,
+    loadSessions,
+    createSession,
+    selectSession,
+    sendMessage,
+  } = useOpenCode({
+    baseUrl: OPENCODE_BASE_URL,
+    directory: OPENCODE_DIRECTORY,
+  });
+
+  // Load sessions on mount
+  useEffect(() => {
+    if (initialized) {
+      loadSessions();
+    }
+  }, [initialized, loadSessions]);
+
+  // Handle start survey
+  const handleStartSurvey = useCallback(async () => {
+    if (!taskTitle.trim() || !initialized) return;
+
+    const session = await createSession(taskTitle);
+    if (session) {
+      setActiveConversations(prev => [session.id, ...prev.filter(id => id !== session.id)]);
+      setTaskTitle('');
+    }
+  }, [taskTitle, initialized, createSession]);
+
+  // Handle send message
+  const handleSend = useCallback(async (_sessionId: string, content: string) => {
+    if (!content.trim() || sending) return;
+    await sendMessage(content);
+  }, [sending, sendMessage]);
+
+  // Input state per session
+  const [inputMap, setInputMap] = useState<Record<string, string>>({});
 
   // Result tab
   const [activeResultTab, setActiveResultTab] = useState<'all' | 'code' | 'results'>('all');
 
-  // Load tasks on mount
-  useEffect(() => {
-    loadTasks();
-  }, []);
+  // Get latest AI message for result panel
+  const latestAi = messages.filter(m => m.role === 'assistant').pop();
 
-  // Load messages when session changes
-  useEffect(() => {
-    if (selectedSession) {
-      loadMessages(selectedSession.id);
-    }
-  }, [selectedSession?.id]);
-
-  const loadTasks = async () => {
-    try {
-      const tasks: Task[] = await apiFetch('/tasks/');
-      const newTaskMap: Record<number, Task> = {};
-      const allSess: Session[] = [];
-
-      for (const task of tasks) {
-        newTaskMap[task.id] = task;
-        const sessions = await fetchSessions(task.id);
-        allSess.push(...sessions);
-      }
-
-      setTaskMap(newTaskMap);
-      // Sort sessions by creation date, newest first
-      allSess.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setAllSessions(allSess);
-    } catch (err) {
-      console.error('Failed to load tasks:', err);
-    }
-  };
-
-  const loadMessages = async (sessionId: number) => {
-    try {
-      const data = await fetchMessages(sessionId);
-      setMessagesMap(prev => ({ ...prev, [sessionId]: data }));
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-      setMessagesMap(prev => ({ ...prev, [sessionId]: [] }));
-    }
-  };
-
-  const handleStartSurvey = async () => {
-    if (!surveyTitle.trim() || loadingSurvey) return;
-
-    setLoadingSurvey(true);
-    try {
-      const task = await createTask(surveyTitle, `调查模式: ${surveyMode === 'semi_auto' ? '半自动' : '全自动'}`);
-      const session = await createSession(task.id, surveyMode);
-
-      setTaskMap(prev => ({ ...prev, [task.id]: task }));
-      setAllSessions(prev => [session, ...prev]);
-      setSelectedSession(session);
-      setActiveConversations(prev => [session.id, ...prev.filter(id => id !== session.id)]);
-      setSurveyTitle('');
-      setMessagesMap(prev => ({ ...prev, [session.id]: [] }));
-    } catch (err) {
-      console.error('Failed to start survey:', err);
-    } finally {
-      setLoadingSurvey(false);
-    }
-  };
-
-  const handleSend = async (sessionId: number) => {
-    const content = (inputMap[sessionId] || '').trim();
-    if (!content || sendingMap[sessionId]) return;
-
-    setSendingMap(prev => ({ ...prev, [sessionId]: true }));
-    setInputMap(prev => ({ ...prev, [sessionId]: '' }));
-
-    const tempMsg: Message = {
-      id: Date.now(),
-      session_id: sessionId,
-      role: 'user',
-      content,
-      created_at: new Date().toISOString(),
-    };
-    setMessagesMap(prev => ({
-      ...prev,
-      [sessionId]: [...(prev[sessionId] || []), tempMsg]
-    }));
-
-    // Create placeholder for AI response
-    const aiMsg: Message = {
-      id: Date.now() + 1,
-      session_id: sessionId,
-      role: 'assistant',
-      content: '',
-      created_at: new Date().toISOString(),
-    };
-    setMessagesMap(prev => ({
-      ...prev,
-      [sessionId]: [...(prev[sessionId] || []), aiMsg]
-    }));
-
-    try {
-      const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.chunk) {
-                setMessagesMap(prev => ({
-                  ...prev,
-                  [sessionId]: (prev[sessionId] || []).map(m =>
-                    m.id === aiMsg.id ? { ...m, content: m.content + data.chunk } : m
-                  )
-                }));
-              }
-              if (data.step) {
-                setStepMap(prev => ({ ...prev, [sessionId]: data.step }));
-              }
-              if (data.done) {
-                setStepMap(prev => ({ ...prev, [sessionId]: '' }));
-                await loadMessages(sessionId);
-              }
-              if (data.error) {
-                console.error('Stream error:', data.error);
-                setStepMap(prev => ({ ...prev, [sessionId]: '' }));
-              }
-            } catch (e) {
-              // Ignore parse errors for incomplete JSON
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Send failed:', err);
-      setMessagesMap(prev => ({
-        ...prev,
-        [sessionId]: (prev[sessionId] || []).filter(m => m.id !== tempMsg.id && m.id !== aiMsg.id)
-      }));
-    } finally {
-      setSendingMap(prev => ({ ...prev, [sessionId]: false }));
-    }
-  };
-
-  
+  // Parse content for result display
   const parseContent = (text: string) => {
     const parts: { type: string; content: string; lang?: string }[] = [];
     const codeBlock = /```(\w+)?\n([\s\S]*?)```/g;
@@ -563,9 +335,6 @@ export default function App() {
     return parts;
   };
 
-  const latestAi = activeConversations.length > 0
-    ? (messagesMap[activeConversations[0]] || []).filter((m: Message) => m.role === 'assistant').pop()
-    : undefined;
   const resultParts = latestAi ? parseContent(latestAi.content) : [];
   const filtered = resultParts.filter(p =>
     activeResultTab === 'all' ||
@@ -608,6 +377,13 @@ export default function App() {
         </div>
       </header>
 
+      {/* Error display */}
+      {error && (
+        <div className="px-4 py-2 bg-red-500/20 border-b border-red-500/30 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
       {/* Main */}
       <main className="flex-1 flex overflow-hidden p-4">
         <ResizablePanels>
@@ -622,25 +398,19 @@ export default function App() {
               </div>
             </PanelHeader>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* 上面：创建调查表单 - 始终显示 */}
               <TaskInput
-                value={surveyTitle}
-                onChange={setSurveyTitle}
+                value={taskTitle}
+                onChange={setTaskTitle}
                 onStart={handleStartSurvey}
-                mode={surveyMode}
-                onModeChange={setSurveyMode}
-                disabled={loadingSurvey}
+                disabled={!initialized}
               />
 
-              {/* 下面：会话历史列表 - 始终显示 */}
               <SessionList
-                sessions={allSessions}
-                taskMap={taskMap}
-                selectedId={selectedSession?.id ?? null}
+                sessions={sessions}
+                selectedId={currentSession}
                 onSelect={(s) => {
-                  setSelectedSession(s);
+                  selectSession(s.id);
                   setActiveConversations(prev => [s.id, ...prev.filter(id => id !== s.id)]);
-                  loadMessages(s.id);
                 }}
               />
             </div>
@@ -676,10 +446,9 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* 3D Carousel Container */}
                 <div className="h-full flex items-center justify-center perspective-1000">
                   <div className="relative w-full h-full flex items-center justify-center">
-                    {/* Left Nav Button */}
+                    {/* Left Nav */}
                     <button
                       onClick={() => setActiveConversations(prev => {
                         if (prev.length <= 1) return prev;
@@ -693,13 +462,7 @@ export default function App() {
                     {/* Cards */}
                     <div className="relative w-full h-full flex items-center justify-center px-16">
                       {activeConversations.map((sessionId, idx) => {
-                        const session = allSessions.find(s => s.id === sessionId);
-                        const task = session ? taskMap[session.task_id] : null;
-                        const messages = messagesMap[sessionId] || [];
-                        const input = inputMap[sessionId] || '';
-                        const sending = sendingMap[sessionId] || false;
-                        if (!session) return null;
-
+                        const session = sessions.find(s => s.id === sessionId);
                         const isCenter = idx === 0;
                         const isLeft = idx === activeConversations.length - 1;
                         const isRight = idx === 1 && activeConversations.length > 1;
@@ -744,11 +507,11 @@ export default function App() {
                                 <Bot className="w-3 h-3 text-white" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h3 className="text-xs font-medium text-white truncate">{task?.title || `任务 #${session.task_id}`}</h3>
+                                <h3 className="text-xs font-medium text-white truncate">{session?.title || `会话 #${sessionId}`}</h3>
                                 <p className="text-[9px] text-gray-500 flex items-center gap-1">
-                                  #{session.id} · {session.mode === 'semi_auto' ? '半自动' : '全自动'}
-                                  {stepMap[sessionId] && (
-                                    <span className="text-blue-400 ml-1">• {stepMap[sessionId]}</span>
+                                  OpenCode 会话
+                                  {step && isCenter && (
+                                    <span className="text-blue-400 ml-1">• {step.step}</span>
                                   )}
                                 </p>
                               </div>
@@ -775,7 +538,7 @@ export default function App() {
                               ) : (
                                 messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
                               )}
-                              {sending && <TypingIndicator step={stepMap[sessionId]} />}
+                              {sending && isCenter && <TypingIndicator step={step || undefined} />}
                             </div>
 
                             {/* Input */}
@@ -784,12 +547,13 @@ export default function App() {
                             >
                               <div className="flex items-center gap-2">
                                 <textarea
-                                  value={input}
+                                  value={inputMap[sessionId] || ''}
                                   onChange={(e) => setInputMap(prev => ({ ...prev, [sessionId]: e.target.value }))}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter' && !e.shiftKey) {
                                       e.preventDefault();
-                                      handleSend(sessionId);
+                                      handleSend(sessionId, inputMap[sessionId] || '');
+                                      setInputMap(prev => ({ ...prev, [sessionId]: '' }));
                                     }
                                   }}
                                   placeholder="输入消息，Enter 发送..."
@@ -797,8 +561,11 @@ export default function App() {
                                   className="flex-1 px-3 py-2 rounded-lg text-xs text-white placeholder-gray-500 resize-none bg-white/5 border border-white/10 focus:border-blue-500/50 focus:outline-none transition-colors"
                                 />
                                 <button
-                                  onClick={() => handleSend(sessionId)}
-                                  disabled={!input.trim() || sending}
+                                  onClick={() => {
+                                    handleSend(sessionId, inputMap[sessionId] || '');
+                                    setInputMap(prev => ({ ...prev, [sessionId]: '' }));
+                                  }}
+                                  disabled={!inputMap[sessionId]?.trim() || sending}
                                   className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30"
                                 >
                                   <Send className="w-4 h-4" />
@@ -810,7 +577,7 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Right Nav Button */}
+                    {/* Right Nav */}
                     <button
                       onClick={() => setActiveConversations(prev => {
                         if (prev.length <= 1) return prev;
@@ -827,21 +594,21 @@ export default function App() {
                 {activeConversations.length > 1 && (
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm">
                     {activeConversations.map((sessionId, idx) => (
-                        <button
-                          key={sessionId}
-                          onClick={() => {
-                            setActiveConversations(prev => {
-                              const arr = prev.filter(id => id !== sessionId);
-                              return [sessionId, ...arr];
-                            });
-                          }}
-                          className={`transition-all rounded-full ${
-                            idx === 0
-                              ? 'w-8 h-3 bg-blue-500'
-                              : 'w-2 h-2 bg-white/40 hover:bg-white/60'
-                          }`}
-                        />
-                      ))}
+                      <button
+                        key={sessionId}
+                        onClick={() => {
+                          setActiveConversations(prev => {
+                            const arr = prev.filter(id => id !== sessionId);
+                            return [sessionId, ...arr];
+                          });
+                        }}
+                        className={`transition-all rounded-full ${
+                          idx === 0
+                            ? 'w-8 h-3 bg-blue-500'
+                            : 'w-2 h-2 bg-white/40 hover:bg-white/60'
+                        }`}
+                      />
+                    ))}
                   </div>
                 )}
               </>

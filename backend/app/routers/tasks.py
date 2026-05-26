@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 @router.post("/", status_code=201)
 def create_task(task: TaskCreate, db: Session = Depends(get_db)):
-    """Create a new task"""
+    """Create a new task (stored in local database only)"""
     db_task = Task(title=task.title, description=task.description)
     db.add(db_task)
     db.commit()

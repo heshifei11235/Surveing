@@ -4,30 +4,28 @@ from typing import List
 
 from ..database import get_db, Session as SessionModel, Task, SurveyMode
 from ..models import SessionCreate
-from ..services.opencode_service import opencode_service
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
 
 @router.post("/tasks/{task_id}/sessions", status_code=201)
 async def create_session(task_id: int, session_data: SessionCreate, db: Session = Depends(get_db)):
-    """Create a new session for a task with OpenCode connection"""
+    """
+    Create a new session for a task.
+    Note: OpenCode session is created by frontend via npm SDK.
+    This endpoint creates the local database record only.
+    """
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Determine mode
     mode_str = session_data.mode.value if session_data and session_data.mode else "semi_auto"
     mode = SurveyMode.SEMI_AUTO if mode_str == "semi_auto" else SurveyMode.FULL_AUTO
 
-    # Create OpenCode session
-    opencode_result = await opencode_service.create_session(mode=mode_str)
-
-    # Create database session
     db_session = SessionModel(
         task_id=task_id,
         mode=mode,
-        opencode_session_id=opencode_result["session_id"]
+        opencode_session_id=None  # Frontend sets this via SDK
     )
     db.add(db_session)
     db.commit()
@@ -60,30 +58,14 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(session_id: int, db: Session = Depends(get_db)):
-    """Delete a session"""
+    """
+    Delete a session.
+    Note: OpenCode session deletion should be done via frontend npm SDK.
+    """
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    # Close OpenCode session if exists
-    if session.opencode_session_id:
-        await opencode_service.close_session(session.opencode_session_id)
 
     db.delete(session)
     db.commit()
     return None
-
-
-@router.post("/sessions/{session_id}/close", status_code=200)
-async def close_opencode_session(session_id: int, db: Session = Depends(get_db)):
-    """Close the OpenCode connection for a session"""
-    session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    if session.opencode_session_id:
-        await opencode_service.close_session(session.opencode_session_id)
-        session.opencode_session_id = None
-        db.commit()
-
-    return {"status": "closed"}
