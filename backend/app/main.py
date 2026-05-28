@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
-from .routers import tasks, sessions, messages
+from .routers import tasks, sessions, messages, sse_proxy
 from .services.opencode_service import opencode_service
 from .config import get_cors_config, get_backend_config
 
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(tasks.router)
 app.include_router(sessions.router)
 app.include_router(messages.router)
+app.include_router(sse_proxy.router)
 
 
 @app.on_event("startup")

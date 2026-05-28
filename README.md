@@ -7,8 +7,8 @@
 - **任务管理** - 创建、编辑、删除调查任务
 - **多会话支持** - 每个任务可创建多个独立对话会话
 - **多对话并行** - 3D 立体卡片布局，支持同时开启多个对话
-- **AI 对话** - 前端直接集成 OpenCode npm SDK，提供智能对话功能
-- **实时响应** - 支持步骤进度和思考过程显示
+- **AI 对话** - 通过后端 SSE 代理与 OpenCode 服务器通信，支持流式响应
+- **实时响应** - 支持 SSE 事件实时接收步骤进度和思考过程
 - **结果展示** - 右侧面板实时展示代码和执行结果
 - **可配置部署** - 支持 YAML 配置文件
 
@@ -26,6 +26,7 @@
 - **FastAPI** - 高性能 Web 框架
 - **SQLAlchemy** - ORM
 - **SQLite** - 轻量级数据库
+- **httpx** - 异步 HTTP 客户端（用于 SSE 代理）
 - 数据存储服务（会话、任务、消息的持久化）
 
 ### 前端
@@ -34,7 +35,6 @@
 - **TailwindCSS** - 样式
 - **Vite** - 构建工具
 - **Lucide Icons** - 图标
-- **@opencode-ai/sdk** - 前端 OpenCode 通信
 
 ## 项目结构
 
@@ -45,7 +45,8 @@ project/
 │   │   ├── routers/          # API 路由
 │   │   │   ├── tasks.py     # 任务相关接口
 │   │   │   ├── sessions.py  # 会话相关接口
-│   │   │   └── messages.py  # 消息相关接口
+│   │   │   ├── messages.py  # 消息相关接口
+│   │   │   └── sse_proxy.py # SSE 代理（核心）
 │   │   ├── services/        # 业务逻辑
 │   │   │   └── opencode_service.py  # (简化版，仅存储)
 │   │   ├── config.py        # 配置加载
@@ -60,43 +61,31 @@ project/
 │   ├── src/
 │   │   ├── App.tsx          # 主应用组件
 │   │   ├── hooks/
-│   │   │   └── useOpenCode.ts   # OpenCode SDK Hook
+│   │   │   └── useSseProxy.ts   # SSE 代理 Hook
 │   │   └── ...
 │   ├── package.json
 │   └── vite.config.ts
 └── README.md
 ```
 
-## 架构说明
+## 文档索引
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         用户浏览器                               │
-├─────────────────────────────────────────────────────────────────┤
-│  前端 (React + @opencode-ai/sdk)                               │
-│    │                                                           │
-│    ├── createOpencodeClient() ──────────────────────────────┐  │
-│    ├── session.create() / list() / delete() ───────────────┐ │  │
-│    ├── session.prompt() ──────────────────────────────────┐ │  │
-│    │                                                        │ │  │
-│    └──────────┬────────────────────────────────────────────┘ │  │
-│               │                                              │  │
-│               ▼                                              │  │
-│         OpenCode 服务器                                       │  │
-│         (localhost:36000)                                     │  │
-└───────────────┬───────────────────────────────────────────────┘  │
-                │                                                │
-                ▼                                                │
-┌─────────────────────────────────────────────────────────────────┐
-│  后端 (FastAPI) - 仅用于数据存储                                 │
-│    │                                                           │
-│    ├── /api/tasks/*    - 任务 CRUD                              │
-│    ├── /api/sessions/* - 会话记录                               │
-│    └── /api/messages/* - 消息存储                               │
-└─────────────────────────────────────────────────────────────────┘
-```
+| 文档 | 说明 |
+|------|------|
+| [README.md](README.md) | 项目概述、快速开始、部署指南 |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | SSE 工作流、事件流程、调试指南 |
+| [docs/TECHNICAL_ROADMAP.md](docs/TECHNICAL_ROADMAP.md) | 详细技术架构、技术选型、扩展性考虑 |
 
-**重要变化**：前端直接使用 `@opencode-ai/sdk` 与 OpenCode 服务器通信，后端仅用于数据持久化存储。
+**通信流程**：
+1. 前端通过 `useSseProxy` Hook 与后端 SSE 代理通信
+2. 后端将 SSE 请求透传到 OpenCode 服务器的 `/global/event` 或 session 事件端点
+3. 发送消息时，后端调用 OpenCode 的 `/v2/session/{id}/prompt_async` 端点
+4. OpenCode 处理完成后通过 SSE 推送事件，前端实时更新 UI
+
+**重要变化**：
+- 后端作为 SSE 透明代理，前端不再直接调用 OpenCode 服务器
+- 支持流式响应，步骤进度和思考过程可以实时显示
+- 后端可扩展为添加认证、日志、限流等中间层功能
 
 ## 快速部署
 
@@ -184,16 +173,34 @@ npm run dev
 
 访问 `http://localhost:3000` 开始使用。
 
-### 7. 配置 OpenCode 连接（可选）
+### 7. 配置 OpenCode 连接
 
-如需修改 OpenCode 服务器地址或工作目录，编辑 `frontend/src/App.tsx`：
+OpenCode 服务器地址在 `backend/app/routers/sse_proxy.py` 中配置：
+
+```python
+OPENCODE_BASE_URL = "http://localhost:36000"
+```
+
+如需修改 OpenCode 工作目录，编辑 `frontend/src/App.tsx` 中的：
 
 ```typescript
-const OPENCODE_BASE_URL = 'http://localhost:36000';
 const OPENCODE_DIRECTORY = '/your/project/path';
 ```
 
 ## API 接口
+
+### SSE 代理接口（核心）
+
+| 方法   | 路径                              | 描述                   |
+|--------|-----------------------------------|------------------------|
+| GET    | `/api/sse/events`                 | 全局事件 SSE 流        |
+| GET    | `/api/sse/session/{id}/events`    | Session 事件 SSE 流    |
+| POST   | `/api/sse/session/{id}/prompt_async` | 异步发送消息         |
+| GET    | `/api/sse/session/{id}/wait`      | 等待 session 完成      |
+| GET    | `/api/sse/session/{id}/messages`  | 获取 session 消息      |
+| GET    | `/api/sse/session/list`           | 列出所有 sessions      |
+| POST   | `/api/sse/session/create`         | 创建新 session         |
+| DELETE | `/api/sse/session/{id}`           | 删除 session           |
 
 ### 任务接口
 
@@ -343,6 +350,17 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
+
+    # SSE 代理
+    location /api/sse {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'keep-alive';
+        proxy_set_header Host $host;
+        proxy_set_header X-Accel-Buffering no;
+        proxy_read_timeout 86400;
+    }
 }
 ```
 
@@ -364,7 +382,13 @@ server {
 
 1. 检查 OpenCode 服务：`curl http://localhost:36000`
 2. 确认 OpenCode 服务正在运行
-3. 检查 `frontend/src/App.tsx` 中的 `OPENCODE_BASE_URL` 配置
+3. 检查 `backend/app/routers/sse_proxy.py` 中的 `OPENCODE_BASE_URL` 配置
+
+### SSE 连接问题
+
+1. 检查 SSE 端点：`curl http://localhost:8000/api/sse/events`
+2. 确认 OpenCode 服务器的 `/global/event` 端点可访问
+3. 检查浏览器控制台是否有跨域错误
 
 ## 许可证
 

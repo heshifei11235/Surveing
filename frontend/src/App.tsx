@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Send, MessageSquare, User, Code, FileText, Terminal, Copy, GripVertical, Play, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useOpenCode, type OpenCodeSession, type OpenCodeMessage, type StepInfo } from './hooks/useOpenCode';
+import { useSseProxy, type OpenCodeSession, type OpenCodeMessage, type StepInfo } from './hooks/useSseProxy';
 
-// OpenCode server URL - change this to your OpenCode server address
-const OPENCODE_BASE_URL = 'http://localhost:36000';
+// Backend proxy URL - this proxies to OpenCode server
+const BACKEND_URL = 'http://localhost:8000';
 const OPENCODE_DIRECTORY = '/Users/heshifei/Desktop/project';
 
 // ============ Task Input Component ============
@@ -267,22 +267,23 @@ function PanelHeader({ children }: { children: React.ReactNode }) {
 export default function App() {
   const [taskTitle, setTaskTitle] = useState('');
   const [activeConversations, setActiveConversations] = useState<string[]>([]);
+  const scrollableRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Use OpenCode hook directly
+  // Use SSE proxy hook to communicate with OpenCode via backend
   const {
     initialized,
     error,
     sessions,
     currentSession,
-    messages,
+    messagesMap,
     sending,
     step,
     loadSessions,
     createSession,
     selectSession,
     sendMessage,
-  } = useOpenCode({
-    baseUrl: OPENCODE_BASE_URL,
+  } = useSseProxy({
+    baseUrl: BACKEND_URL,
     directory: OPENCODE_DIRECTORY,
   });
 
@@ -292,6 +293,14 @@ export default function App() {
       loadSessions();
     }
   }, [initialized, loadSessions]);
+
+  // Auto-scroll to bottom when messages change or session changes
+  useEffect(() => {
+    const centerSessionId = activeConversations[0];
+    if (centerSessionId && scrollableRefs.current[centerSessionId]) {
+      scrollableRefs.current[centerSessionId]!.scrollTop = scrollableRefs.current[centerSessionId]!.scrollHeight;
+    }
+  }, [messagesMap, activeConversations]);
 
   // Handle start survey
   const handleStartSurvey = useCallback(async () => {
@@ -305,9 +314,10 @@ export default function App() {
   }, [taskTitle, initialized, createSession]);
 
   // Handle send message
-  const handleSend = useCallback(async (_sessionId: string, content: string) => {
+  const handleSend = useCallback(async (sessionId: string, content: string) => {
     if (!content.trim() || sending) return;
-    await sendMessage(content);
+    // Pass sessionId directly so messages go to the correct session
+    await sendMessage(content, sessionId);
   }, [sending, sendMessage]);
 
   // Input state per session
@@ -316,8 +326,9 @@ export default function App() {
   // Result tab
   const [activeResultTab, setActiveResultTab] = useState<'all' | 'code' | 'results'>('all');
 
-  // Get latest AI message for result panel
-  const latestAi = messages.filter(m => m.role === 'assistant').pop();
+  // Get latest AI message for result panel (from current session)
+  const currentMessages = currentSession ? (messagesMap[currentSession] || []) : [];
+  const latestAi = currentMessages.filter(m => m.role === 'assistant').pop();
 
   // Parse content for result display
   const parseContent = (text: string) => {
@@ -450,10 +461,14 @@ export default function App() {
                   <div className="relative w-full h-full flex items-center justify-center">
                     {/* Left Nav */}
                     <button
-                      onClick={() => setActiveConversations(prev => {
-                        if (prev.length <= 1) return prev;
-                        return [prev[prev.length - 1], ...prev.slice(0, -1)];
-                      })}
+                      onClick={() => {
+                        setActiveConversations(prev => {
+                          if (prev.length <= 1) return prev;
+                          const rotated = [prev[prev.length - 1], ...prev.slice(0, -1)];
+                          selectSession(rotated[0]);
+                          return rotated;
+                        });
+                      }}
                       className="absolute left-4 z-30 w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all shadow-lg"
                     >
                       <ChevronLeft className="w-5 h-5" />
@@ -472,6 +487,7 @@ export default function App() {
                             key={sessionId}
                             onClick={() => {
                               if (!isCenter) {
+                                selectSession(sessionId);
                                 setActiveConversations(prev => {
                                   const arr = prev.filter(id => id !== sessionId);
                                   return [sessionId, ...arr];
@@ -529,14 +545,14 @@ export default function App() {
                             </div>
 
                             {/* Messages */}
-                            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-                              {messages.length === 0 ? (
+                            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" ref={(el) => { scrollableRefs.current[sessionId] = el; }}>
+                              {(messagesMap[sessionId] || []).length === 0 ? (
                                 <div className="h-full flex flex-col items-center justify-center text-gray-500">
                                   <Bot className="w-6 h-6 mb-2 opacity-30" />
                                   <p className="text-xs">开始发送消息</p>
                                 </div>
                               ) : (
-                                messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
+                                (messagesMap[sessionId] || []).map(msg => <MessageBubble key={msg.id} msg={msg} />)
                               )}
                               {sending && isCenter && <TypingIndicator step={step || undefined} />}
                             </div>
@@ -597,6 +613,7 @@ export default function App() {
                       <button
                         key={sessionId}
                         onClick={() => {
+                          selectSession(sessionId);
                           setActiveConversations(prev => {
                             const arr = prev.filter(id => id !== sessionId);
                             return [sessionId, ...arr];
