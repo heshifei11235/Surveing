@@ -428,6 +428,27 @@ export function useSseProxy({ baseUrl, directory }: UseSseProxyOptions) {
     }
   }, [baseUrl, directory, currentSession]);
 
+  // Abort running session
+  const abortSession = useCallback(async (sessionId: string) => {
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/sse/session/${sessionId}/abort?directory=${directory || ''}`,
+        { method: 'POST' }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to abort session: ${response.statusText}`);
+      }
+
+      // Clear step indicator
+      setStep(null);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to abort session');
+      return false;
+    }
+  }, [baseUrl, directory]);
+
   // Send message using prompt_async
   const sendMessage = useCallback(async (content: string, sessionId?: string) => {
     const targetSession = sessionId || currentSession;
@@ -491,6 +512,7 @@ export function useSseProxy({ baseUrl, directory }: UseSseProxyOptions) {
     createSession,
     selectSession,
     deleteSession,
+    abortSession,
     sendMessage,
   };
 }

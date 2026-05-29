@@ -238,3 +238,32 @@ async def delete_opencode_session(session_id: str, directory: Optional[str] = No
                 return {"success": True}
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"OpenCode request failed: {str(e)}")
+
+
+@router.post("/session/{session_id}/abort")
+async def abort_session(session_id: str, directory: Optional[str] = None):
+    """
+    Abort a running session.
+    Stops any ongoing AI processing for the specified session.
+    """
+    url = f"{OPENCODE_BASE_URL}/session/{session_id}/abort"
+
+    headers = {"Accept": "application/json"}
+    if directory:
+        headers["X-Directory"] = directory
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(url, headers=headers)
+            print(f"[SSE Proxy] abort session {session_id} response: {response.status_code}")
+            if response.status_code >= 400:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+            content = response.text.strip()
+            if not content:
+                return {"success": True}
+            try:
+                return response.json()
+            except Exception:
+                return {"success": True}
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"OpenCode request failed: {str(e)}")

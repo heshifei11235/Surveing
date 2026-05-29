@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Bot, Send, MessageSquare, User, Code, FileText, Terminal, Copy, GripVertical, Play, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Bot, Send, MessageSquare, User, Code, FileText, Terminal, Copy, GripVertical, Play, ChevronLeft, ChevronRight, X, StopCircle } from 'lucide-react';
 import { useSseProxy, type OpenCodeSession, type OpenCodeMessage, type StepInfo } from './hooks/useSseProxy';
 
 // Backend proxy URL - this proxies to OpenCode server
@@ -281,6 +281,7 @@ export default function App() {
     loadSessions,
     createSession,
     selectSession,
+    abortSession,
     sendMessage,
   } = useSseProxy({
     baseUrl: BACKEND_URL,
@@ -532,15 +533,29 @@ export default function App() {
                                 </p>
                               </div>
                               {isCenter && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveConversations(prev => prev.filter(id => id !== sessionId));
-                                  }}
-                                  className="p-1 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
+                                <>
+                                  {step && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        abortSession(sessionId);
+                                      }}
+                                      className="p-1 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-all"
+                                      title="中止对话"
+                                    >
+                                      <StopCircle className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveConversations(prev => prev.filter(id => id !== sessionId));
+                                    }}
+                                    className="p-1 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
                               )}
                             </div>
 
